@@ -135,4 +135,101 @@ test.describe('playground layout persistence (desktop)', () => {
     await expect(playground.content).toBeVisible();
     expect(Math.abs((await playground.bottomPanelHeight()) - resized)).toBeLessThan(5);
   });
+
+  // BRU-4083 AC2: height (bottom) and width (inline) are stored independently.
+  test('keeps the bottom height after the inline width is resized', async ({ page, playground }) => {
+    await playground.open('bottom');
+    await playground.grabBottomResizer();
+    await playground.movePointerToY(300);
+    await playground.releasePointer();
+    const height = await playground.bottomPanelHeight();
+    expect(height).toBeGreaterThan(560);
+
+    await playground.selectDock('inline');
+    await playground.grabInlineResizer();
+    await playground.movePointerToX(500);
+    await playground.releasePointer();
+    const width = await playground.inlinePanelWidth();
+    expect(width).toBeGreaterThan(700);
+
+    await playground.selectDock('bottom');
+    expect(Math.abs((await playground.bottomPanelHeight()) - height)).toBeLessThan(5);
+
+    await page.reload();
+    await expect(playground.bottomPanel).toBeVisible();
+    expect(Math.abs((await playground.bottomPanelHeight()) - height)).toBeLessThan(5);
+
+    await playground.selectDock('inline');
+    expect(Math.abs((await playground.inlinePanelWidth()) - width)).toBeLessThan(5);
+  });
+
+  // BRU-4083 AC3: first visit with nothing stored uses the default size (60% height / 40% width).
+  test('opens at the default bottom height when nothing is stored', async ({ playground }) => {
+    await playground.open('bottom');
+    await expect(playground.bottomPanel).toBeVisible();
+    expect(await playground.bottomPanelHeight()).toBeGreaterThan(520);
+    expect(await playground.bottomPanelHeight()).toBeLessThan(560);
+  });
+
+  test('opens at the default inline width when nothing is stored', async ({ playground }) => {
+    await playground.open('inline');
+    await expect(playground.inlinePanel).toBeVisible();
+    expect(await playground.inlinePanelWidth()).toBeGreaterThan(490);
+    expect(await playground.inlinePanelWidth()).toBeLessThan(540);
+  });
+
+  test('ignores a corrupt stored height and uses the default', async ({ page, playground }) => {
+    await page.addInitScript(() => {
+      sessionStorage.setItem('oc-docs:playgroundBottomHeight', 'not-a-number');
+    });
+
+    await playground.open('bottom');
+    await expect(playground.bottomPanel).toBeVisible();
+    expect(await playground.bottomPanelHeight()).toBeGreaterThan(520);
+    expect(await playground.bottomPanelHeight()).toBeLessThan(560);
+  });
+
+  test('clamps an out-of-range stored height to the viewport', async ({ page, playground }) => {
+    await page.addInitScript(() => {
+      sessionStorage.setItem('oc-docs:playgroundBottomHeight', '99999');
+    });
+
+    await playground.open('bottom');
+    await expect(playground.bottomPanel).toBeVisible();
+    const height = await playground.bottomPanelHeight();
+    expect(height).toBeGreaterThan(850);
+    expect(height).toBeLessThanOrEqual(900);
+  });
+
+  // BRU-4083 AC6: no stored dock and no dock in the URL → default bottom.
+  test('a fresh Try it with no stored dock opens in the bottom dock', async ({ requestPage, playground }) => {
+    await requestPage.open(REQUEST_PATH);
+    await requestPage.urlBar.tryButton.click();
+    await expect(playground.bottomPanel).toBeVisible();
+    await expect(playground.inlinePanel).toHaveCount(0);
+    await expect(playground.modalPanel).toHaveCount(0);
+  });
+
+  // BRU-4083 AC7 / AC8: sizes and dock live in sessionStorage, written after the gesture.
+  test('writes the resized height to sessionStorage, not localStorage', async ({ page, playground }) => {
+    await playground.open('bottom');
+    await playground.grabBottomResizer();
+    await playground.movePointerToY(300);
+    await playground.releasePointer();
+
+    const session = await page.evaluate(() => sessionStorage.getItem('oc-docs:playgroundBottomHeight'));
+    const local = await page.evaluate(() => localStorage.getItem('oc-docs:playgroundBottomHeight'));
+    expect(session).not.toBeNull();
+    expect(Number(session)).toBeGreaterThan(560);
+    expect(local).toBeNull();
+  });
+
+  test('writes the chosen dock to sessionStorage on switch', async ({ page, playground }) => {
+    await playground.open('bottom');
+    await playground.selectDock('inline');
+    await expect(playground.inlinePanel).toBeVisible();
+
+    expect(await page.evaluate(() => sessionStorage.getItem('oc-docs:playgroundDock'))).toBe('inline');
+    expect(await page.evaluate(() => localStorage.getItem('oc-docs:playgroundDock'))).toBeNull();
+  });
 });
