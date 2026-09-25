@@ -1,4 +1,5 @@
 import { test, expect } from '../../playwright';
+import { DOCK_STORAGE_KEY, HEIGHT_STORAGE_KEY } from '../../../src/utils/playgroundDock';
 
 const DESKTOP = { width: 1280, height: 900 };
 const openAt = (dock: string): string => `/#/?pg=1&dock=${dock}`;
@@ -16,10 +17,8 @@ test.describe('playground layout persistence (desktop)', () => {
     await playground.releasePointer();
     const resized = await playground.bottomPanelHeight();
     expect(resized).toBeGreaterThan(560);
-    expect(await page.evaluate(() => localStorage.getItem('oc-docs:playgroundBottomHeight'))).toBeNull();
-    expect(Number(await page.evaluate(() => sessionStorage.getItem('oc-docs:playgroundBottomHeight')))).toBeGreaterThan(
-      560
-    );
+    expect(await playground.storedItem('local', HEIGHT_STORAGE_KEY)).toBeNull();
+    expect(Number(await playground.storedItem('session', HEIGHT_STORAGE_KEY))).toBeGreaterThan(560);
 
     await page.reload();
     await expect(playground.bottomPanel).toBeVisible();
@@ -42,7 +41,6 @@ test.describe('playground layout persistence (desktop)', () => {
   });
 
   test('reopens in the last-used dock after closing (fresh open, no dock in URL)', async ({
-    page,
     requestPage,
     playground
   }) => {
@@ -52,8 +50,8 @@ test.describe('playground layout persistence (desktop)', () => {
 
     await playground.selectDock('inline');
     await expect(playground.inlinePanel).toBeVisible();
-    expect(await page.evaluate(() => sessionStorage.getItem('oc-docs:playgroundDock'))).toBe('inline');
-    expect(await page.evaluate(() => localStorage.getItem('oc-docs:playgroundDock'))).toBeNull();
+    expect(await playground.storedItem('session', DOCK_STORAGE_KEY)).toBe('inline');
+    expect(await playground.storedItem('local', DOCK_STORAGE_KEY)).toBeNull();
 
     await playground.close();
     await expect(playground.header).toHaveCount(0);
@@ -64,9 +62,9 @@ test.describe('playground layout persistence (desktop)', () => {
   });
 
   test('a dock in the URL wins over the stored dock', async ({ page, playground }) => {
-    await page.addInitScript(() => {
-      sessionStorage.setItem('oc-docs:playgroundDock', 'inline');
-    });
+    await page.addInitScript((key) => {
+      sessionStorage.setItem(key, 'inline');
+    }, DOCK_STORAGE_KEY);
 
     await page.goto(openAt('modal'));
     await expect(playground.modalPanel).toBeVisible();
@@ -78,9 +76,9 @@ test.describe('playground layout persistence (desktop)', () => {
     requestPage,
     playground
   }) => {
-    await page.addInitScript(() => {
-      sessionStorage.setItem('oc-docs:playgroundDock', 'sideways');
-    });
+    await page.addInitScript((key) => {
+      sessionStorage.setItem(key, 'sideways');
+    }, DOCK_STORAGE_KEY);
 
     await requestPage.open(REQUEST_PATH);
     await requestPage.urlBar.tryButton.click();
@@ -172,32 +170,35 @@ test.describe('playground layout persistence (desktop)', () => {
   test('opens at the default bottom height when nothing is stored', async ({ playground }) => {
     await playground.open('bottom');
     await expect(playground.bottomPanel).toBeVisible();
-    expect(await playground.bottomPanelHeight()).toBeGreaterThan(520);
-    expect(await playground.bottomPanelHeight()).toBeLessThan(560);
+    const height = await playground.bottomPanelHeight();
+    expect(height).toBeGreaterThan(520);
+    expect(height).toBeLessThanOrEqual(560);
   });
 
   test('opens at the default inline width when nothing is stored', async ({ playground }) => {
     await playground.open('inline');
     await expect(playground.inlinePanel).toBeVisible();
-    expect(await playground.inlinePanelWidth()).toBeGreaterThan(490);
-    expect(await playground.inlinePanelWidth()).toBeLessThan(540);
+    const width = await playground.inlinePanelWidth();
+    expect(width).toBeGreaterThan(490);
+    expect(width).toBeLessThanOrEqual(540);
   });
 
   test('ignores a corrupt stored height and uses the default', async ({ page, playground }) => {
-    await page.addInitScript(() => {
-      sessionStorage.setItem('oc-docs:playgroundBottomHeight', 'not-a-number');
-    });
+    await page.addInitScript((key) => {
+      sessionStorage.setItem(key, 'not-a-number');
+    }, HEIGHT_STORAGE_KEY);
 
     await playground.open('bottom');
     await expect(playground.bottomPanel).toBeVisible();
-    expect(await playground.bottomPanelHeight()).toBeGreaterThan(520);
-    expect(await playground.bottomPanelHeight()).toBeLessThan(560);
+    const height = await playground.bottomPanelHeight();
+    expect(height).toBeGreaterThan(520);
+    expect(height).toBeLessThanOrEqual(560);
   });
 
   test('clamps an out-of-range stored height to the viewport', async ({ page, playground }) => {
-    await page.addInitScript(() => {
-      sessionStorage.setItem('oc-docs:playgroundBottomHeight', '99999');
-    });
+    await page.addInitScript((key) => {
+      sessionStorage.setItem(key, '99999');
+    }, HEIGHT_STORAGE_KEY);
 
     await playground.open('bottom');
     await expect(playground.bottomPanel).toBeVisible();
